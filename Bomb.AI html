@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Göz</title>
+<style>
+:root{--bg:#02040a;--eye:#62c8ff;--tx:#e8f4ff;--dim:#6f8aa3;--pn:#0b1320;--ln:#1c2d44}
+*{box-sizing:border-box}html,body{height:100%;margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,"Segoe UI",Roboto,sans-serif;overflow:hidden;cursor:none}
+button{cursor:none;font:inherit;color:inherit}
+#stage{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+#face{display:flex;gap:7vmin;transition:transform .6s}
+.eye{width:24vmin;height:21vmin;max-width:210px;max-height:184px;background:var(--eye);border-radius:30%;box-shadow:0 0 28px #62c8ff77;transition:transform .09s,box-shadow .3s}
+.eye.b{transform:scaleY(.07)}.listen .eye{box-shadow:0 0 64px #62c8ffdd}
+.speak #face{animation:tk .32s ease-in-out infinite alternate}@keyframes tk{to{transform:scale(1.05)}}
+#sub{width:min(720px,94vw);text-align:center;margin-top:26px;height:170px;overflow:hidden}
+#me{color:var(--dim);font-size:15px;min-height:22px;margin-bottom:6px}#ai{font-size:22px;line-height:1.4}
+#paper{position:fixed;left:50%;top:3vh;height:80vh;aspect-ratio:.8;background:#faf8f0;border-radius:6px;box-shadow:0 14px 40px #000c;z-index:15;transform:translate(-50%,115vh) rotate(-3deg);transition:transform .9s cubic-bezier(.2,.8,.2,1)}
+#paper.on{transform:translate(-50%,0) rotate(0)}#paper canvas{width:100%;height:100%}
+#perm{position:fixed;inset:0;background:#02040af5;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;font-size:24px;text-align:center;padding:20px}
+#perm small{font-size:15px;color:var(--dim);max-width:520px}
+#perm button{background:var(--pn);border:1px solid var(--ln);border-radius:12px;font-size:20px;margin:0 8px;padding:14px 28px}#perm button:hover{background:#17304f}
+#lvl{position:fixed;left:50%;bottom:18px;width:300px;height:8px;transform:translateX(-50%);background:#0b1320;border-radius:4px;display:none}#lvl i{display:block;height:100%;width:0;background:var(--eye);border-radius:4px}#dbg{position:fixed;left:10px;top:10px;font:12px/1.5 monospace;color:#6f8aa3;white-space:pre}
+#cur{position:fixed;width:20px;height:28px;pointer-events:none;z-index:99;display:none;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 28'%3E%3Cpath d='M1 1v22l6-5 4 9 4-2-4-9h8z' fill='white' stroke='black'/%3E%3C/svg%3E")}
+</style></head><body>
+<div id="stage"><div id="face"><div class="eye"></div><div class="eye"></div></div><div id="sub"><div id="me"></div><div id="ai"></div></div></div>
+<div id="paper"><canvas id="cv" width="640" height="800"></canvas></div>
+<div id="perm"><div id="pq"></div><small id="ps"></small><div><button id="py">Evet (E)</button><button id="pn">Hayır (H)</button></div></div>
+<div id="lvl"><i></i></div><div id="dbg"></div>
+<div id="cur"></div>
+<script>
+/* ====== AYARLAR ====== */
+const GEMINI_KEY='';   // <-- aistudio.google.com/apikey adresinden aldığın Google yapay zekâ anahtarını tırnakların arasına yapıştır
+const MODELS=['gemini-3.5-flash','gemini-2.5-flash'];   // sırayla denenir
+
+/*ENGINE*/
+const norm=s=>s.toLocaleLowerCase('tr').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/ı/g,'i').replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim();
+const ENT=`kedi|evcil, uykuyu ve oyunu çok seven bir hayvandır
+köpek|insanın en sadık dostu sayılan evcil bir hayvandır
+at|hızlı koşan, binilen güçlü bir hayvandır
+inek|süt veren, çiftliklerde yaşayan bir hayvandır
+koyun|yünüyle ve sütüyle bilinen bir çiftlik hayvanıdır
+tavuk|yumurta veren bir kanatlı hayvandır
+kuş|kanatları olan ve uçabilen bir canlıdır
+balık|suda yaşayan ve solungaçlarıyla nefes alan bir canlıdır
+aslan|ormanların kralı sayılan güçlü bir yırtıcıdır
+kaplan|çizgili postuyla tanınan büyük bir yırtıcıdır
+fil|karada yaşayan en büyük hayvandır
+geyik|boynuzlarıyla tanınan zarif bir orman hayvanıdır
+maymun|zeki ve oyuncu bir hayvandır
+yunus|zeki ve sevimli bir deniz memelisidir
+balina|denizlerin en büyük canlısıdır
+kartal|keskin gözlü, güçlü bir yırtıcı kuştur
+baykuş|geceleri avlanan bilge görünümlü bir kuştur
+arı|bal yapan çalışkan bir böcektir
+karınca|çok çalışkan ve düzenli yaşayan küçük bir böcektir
+kelebek|renkli kanatlarıyla tanınan bir böcektir
+kurbağa|hem suda hem karada yaşayabilen bir canlıdır
+tavşan|uzun kulaklı, hızlı zıplayan bir hayvandır
+kaplumbağa|kabuğuyla tanınan, yavaş yürüyen bir hayvandır
+yılan|bacaksız, sürünerek ilerleyen bir sürüngendir
+penguen|kutuplarda yaşayan, uçamayan bir kuştur
+panda|siyah beyaz renkli, bambu yiyen bir hayvandır
+kurt|sürüler halinde yaşayan vahşi bir hayvandır
+ayı|kışın uykuya yatan iri bir hayvandır
+tilki|kurnazlığıyla ünlü bir hayvandır
+örümcek|ağ örerek avlanan sekiz bacaklı bir canlıdır
+elma|tatlı ve sulu, ağaçta yetişen bir meyvedir
+muz|sarı kabuklu, enerji veren bir meyvedir
+portakal|C vitamini dolu turuncu bir meyvedir
+çilek|kırmızı ve kokulu bir meyvedir
+üzüm|salkım halinde yetişen bir meyvedir
+karpuz|yazın serinleten iri bir meyvedir
+domates|salatalarda ve yemeklerde kullanılan kırmızı bir sebzedir
+patates|toprağın altında yetişen çok yönlü bir sebzedir
+havuç|turuncu renkli, göze iyi gelen bir sebzedir
+ekmek|unla yapılan temel bir yiyecektir
+peynir|sütten yapılan lezzetli bir besindir
+yoğurt|sütün mayalanmasıyla yapılan sağlıklı bir yiyecektir
+bal|arıların yaptığı tatlı bir besindir
+çay|Türkiye'de en çok içilen sıcak içecektir
+kahve|güne enerjiyle başlatan kokulu bir içecektir
+süt|besleyici beyaz bir içecektir
+pizza|İtalya kökenli, hamur üzerine yapılan bir yemektir
+makarna|buğday irmiğinden yapılan pratik bir yemektir
+pilav|pirinçten yapılan yemeklerin vazgeçilmezidir
+çorba|sıcak servis edilen, içimi rahat bir yemektir
+kebap|ızgarada pişirilen bir et yemeğidir
+baklava|kat kat yufkayla yapılan şerbetli bir tatlıdır
+dondurma|soğuk ve tatlı bir lezzettir
+çikolata|kakaodan yapılan tatlı bir yiyecektir
+simit|susamlı, halka biçimli bir hamur işidir
+börek|yufkadan yapılan lezzetli bir hamur işidir
+omlet|yumurtadan yapılan hızlı bir yemektir
+salata|taze sebzelerle yapılan hafif bir yemektir
+limon|ekşi tadıyla bilinen sarı bir meyvedir
+fındık|Karadeniz'de bolca yetişen bir kuruyemiştir
+güneş|dünyaya ışık ve ısı veren yıldızdır
+ay|dünyanın etrafında dönen uydusudur
+yıldız|gökyüzünde parlayan dev gaz toplarıdır
+gezegen|bir yıldızın etrafında dönen büyük gök cismidir
+dünya|üzerinde yaşadığımız mavi gezegendir
+mars|kızıl renkli komşu gezegendir
+jüpiter|güneş sisteminin en büyük gezegenidir
+uzay|yıldızların ve gezegenlerin bulunduğu sonsuz boşluktur
+bulut|havadaki su buharının oluşturduğu kütledir
+yağmur|bulutlardan düşen su damlalarıdır
+kar|soğuk havada yağan beyaz kristallerdir
+rüzgar|havanın hareket etmesiyle oluşan akıştır
+deniz|tuzlu suyla kaplı geniş su alanıdır
+nehir|dağlardan denize akan su yoludur
+göl|karalarla çevrili durgun su kütlesidir
+dağ|yeryüzünün yüksek yer şeklidir
+orman|ağaçlarla kaplı geniş bir alandır
+ağaç|kökleri, gövdesi ve yaprakları olan bir bitkidir
+çiçek|renkli ve kokulu bir bitki bölümüdür
+yaprak|ağacın nefes alan yeşil kısmıdır
+gökkuşağı|yağmur sonrası güneş ışığının oluşturduğu renkli yaydır
+şimşek|bulutlarda oluşan elektrik boşalmasıdır
+deprem|yer kabuğunun sarsılmasıdır
+volkan|yer altından lav püskürten dağdır
+çöl|çok az yağış alan kurak bölgedir
+ada|etrafı sularla çevrili kara parçasıdır
+mağara|yerin altındaki ya da dağdaki doğal boşluktur
+okyanus|dünyanın en büyük tuzlu su kütlesidir
+kuyruklu yıldız|buzlardan oluşan, kuyruğu parlayan gök cismidir
+galaksi|milyarlarca yıldızdan oluşan dev yıldız sistemidir
+doktor|hastaları iyileştirmeye çalışan bir sağlık çalışanıdır
+öğretmen|bilgi öğreten ve yol gösteren bir meslektir
+mühendis|teknik sorunlara çözüm üreten bir meslektir
+pilot|uçak kullanan kişidir
+itfaiyeci|yangınları söndüren cesur bir görevlidir
+polis|düzeni ve güvenliği sağlayan görevlidir
+aşçı|yemek pişirmeyi meslek edinmiş kişidir
+çiftçi|toprağı ekip ürün yetiştiren kişidir
+ressam|resim yapan sanatçıdır
+müzisyen|müzik yapan sanatçıdır
+yazar|kitap ve hikâye yazan kişidir
+astronot|uzaya giden bilim insanıdır
+berber|saç ve sakal kesen ustadır
+terzi|kumaşları dikip giysi yapan ustadır
+marangoz|ahşapla çalışan ustadır
+fotoğrafçı|anları görüntüye dönüştüren sanatçıdır
+avukat|hukuki konularda insanlara yardım eden kişidir
+hemşire|hastalara bakan sağlık çalışanıdır
+şoför|araç kullanan kişidir
+programcı|bilgisayarlara kod yazan kişidir
+futbol|iki takımın topu kaleye sokmaya çalıştığı sporudur
+basketbol|topu potaya atarak oynanan bir takım sporudur
+voleybol|topun file üzerinden aşırıldığı bir takım sporudur
+yüzme|suda yapılan sağlıklı bir spordur
+koşu|herkesin yapabileceği temel bir spordur
+bisiklet|iki tekerlekli, pedalla giden bir taşıttır
+satranç|zekâ gerektiren bir strateji oyunudur
+resim|renklerle kağıda duygu aktarma sanatıdır
+müzik|seslerin uyumlu birleşimiyle yapılan sanattır
+dans|vücut hareketleriyle yapılan bir sanattır
+okuma|kitaplarla yeni dünyalar keşfetmektir
+yazı|düşünceleri kağıda dökmenin yoludur
+fotoğraf|bir anı görüntü olarak saklamaktır
+bahçecilik|bitki yetiştirme hobisidir
+balık tutma|sabır isteyen bir hobidir
+yürüyüş|doğada vakit geçirmenin kolay yoludur
+tenis|raketle oynanan bir spordur
+boks|eldivenle yapılan bir dövüş sporudur
+kamp|doğada çadırda vakit geçirmektir
+oyun|eğlenmek için oynanan etkinliklerdir
+bilgisayar|bilgi işleyen elektronik bir cihazdır
+telefon|uzaktaki kişilerle konuşmayı sağlayan cihazdır
+televizyon|görüntü ve ses yayınını izleten cihazdır
+radyo|ses yayınlarını dinlemeye yarar
+kitap|bilgi ve hikâyelerle dolu sayfalardır
+kalem|yazı yazmaya yarayan araçtır
+defter|notların yazıldığı sayfalar topluluğudur
+masa|üzerinde çalışılan ya da yemek yenen mobilyadır
+sandalye|oturmaya yarayan mobilyadır
+yatak|uyumak için kullanılan eşyadır
+ev|insanların barındığı yapıdır
+okul|eğitim verilen kurumdur
+araba|motorla giden dört tekerlekli taşıttır
+uçak|havada uçan büyük bir taşıttır
+tren|raylarda giden uzun bir taşıttır
+gemi|denizde yolculuk yapan büyük taşıttır
+otobüs|çok yolcu taşıyan bir taşıttır
+robot|programlanabilen bir makinedir
+internet|dünyadaki bilgisayarları birbirine bağlayan ağdır
+kamera|görüntü kaydeden cihazdır
+saat|zamanı gösteren araçtır
+gözlük|görmeyi kolaylaştıran araçtır
+şemsiye|yağmurdan korunmaya yarar
+anahtar|kilitleri açmaya yarayan araçtır
+ayna|yansımamızı gösteren yüzeydir
+lamba|ortamı aydınlatan araçtır
+klavye|bilgisayara yazı yazdıran araçtır
+fare|bilgisayarda imleci hareket ettiren araçtır
+hoparlör|sesi dışarı veren cihazdır
+mikrofon|sesi kaydeden cihazdır
+dostluk|insanlar arasındaki içten bağdır
+sevgi|insanı insana yaklaştıran duygudur
+mutluluk|içten gelen güzel hissetmedir
+özgürlük|baskı altında olmadan yaşayabilmektir
+zaman|olayların akışını ölçtüğümüz kavramdır
+hayal|zihinde canlandırdığımız güzel düşüncelerdir
+rüya|uykuda gördüğümüz görüntülerdir
+barış|çatışmasız ve huzurlu yaşamdır
+cesaret|korkuya rağmen harekete geçebilmektir
+sabır|beklemeyi sakin sürdürebilmektir
+merak|öğrenmek ve keşfetmek isteğidir
+umut|iyi şeylerin olacağına inanmaktır
+heyecan|güçlü ve hareketli bir duygudur
+korku|tehlike karşısında hissedilen duygudur
+üzüntü|kayıp ya da kötü olay sonrası hissedilen duygudur
+kıskançlık|başkasının sahip olduğunu istemektir
+yalnızlık|yanında kimsenin olmadığı hissidir
+başarı|hedefe ulaşmaktır
+bilgi|öğrenilerek edinilen şeylerdir
+sağlık|vücudun ve zihnin iyi durumda olmasıdır
+ilkbahar|doğanın uyandığı mevsimdir
+yaz|en sıcak mevsimdir
+sonbahar|yaprakların döküldüğü mevsimdir
+kış|en soğuk mevsimdir
+sabah|günün başlangıcıdır
+akşam|günün sakin bittiği vakittir
+gece|yıldızların göründüğü zamandır
+hafta sonu|dinlenmek için ayrılan günlerdir
+bayram|sevinçle kutlanan özel günlerdir
+doğum günü|bir insanın dünyaya geldiği günün kutlamasıdır
+istanbul|iki kıtayı birleştiren büyük şehirdir
+ankara|Türkiye'nin başkentidir
+izmir|Ege kıyısında güzel bir şehirdir
+antalya|turizmiyle ünlü sahil şehridir
+türkiye|üç tarafı denizlerle çevrili güzel bir ülkedir
+paris|Fransa'nın başkentidir
+japonya|teknolojisiyle bilinen bir ada ülkesidir
+mısır|piramitleriyle ünlü bir ülkedir
+kıta|dünyanın büyük kara parçalarıdır
+harita|yerleri gösteren çizimdir`.split('\n').map(l=>l.split('|'));
+const INT=`{X} nedir|{X} ne demek|{X}, {d}.
+{X} hakkında bilgi verir misin|{X} ile ilgili bilgi ver|Tabii. {X}, {d}.
+{X} hakkında ne düşünüyorsun|{X} sence nasıl|Bence {X} ilginç bir konu. {X}, {d}.
+{X} hoşuna gider mi|{X} sever misin|Bir yapay zekâ olarak {X} bana merak veriyor. {X}, {d}.
+{X} deyince aklına ne geliyor|{X} sana ne ifade ediyor|{X} deyince aklıma şu geliyor: {d}.
+{X} neden önemli|{X} niye önemli|{X} önemli çünkü {d}. Hayatımızda yeri var.
+{X} hakkında ilginç bir şey söyle|{X} ile ilgili ilginç bir bilgi ver|İlginç bir not: {X}, {d}.
+{X} için kısa bir şiir yaz|{X} hakkında şiir söyle|{X}, {d}. Bir dize de benden: {X} diye fısıldadı gece, yıldızlar göz kırptı bize.
+{X} hakkında bir hikaye anlat|{X} ile ilgili masal anlat|Bir varmış bir yokmuş, {X} adında bir kahraman varmış. Bu kahraman {d}. Herkes onu çok severmiş.
+{X} hakkında fıkra anlat|{X} ile ilgili espri yap|{X} bir gün demiş ki: ben {d}, bana gülmeyin! Herkes kahkahayı basmış.
+{X} ne işe yarar|{X} neye yarar|Kısaca söylemek gerekirse {X}, {d}. Ne işe yaradığı bakış açına göre değişir.
+{X} güzel mi|{X} hoş mu|Güzellik bakana göre değişir ama {X}, {d}.
+{X} faydalı mı|{X} işe yarar mı|Çoğu zaman evet. {X}, {d}.
+{X} eğlenceli mi|{X} keyifli mi|Bana kalırsa evet. {X}, {d}. Keyfi sana kalmış.
+{X} sıkıcı mı|{X} sıkıcı bir şey mi|Hiç sıkıcı değil. {X}, {d}.
+{X} popüler mi|{X} çok bilinir mi|Pek çok insan {X} konusunu bilir. {X}, {d}.
+{X} önemli bir şey mi|{X} değerli mi|Bence değerli. {X}, {d}.
+{X} anlat|{X} hakkında konuşalım|Konuşalım. {X}, {d}. Sen ne düşünüyorsun?
+{X} hakkında bir şey söyle|{X} ile ilgili bir şey söyle|Şunu söyleyebilirim: {X}, {d}.
+{X} kısaca açıkla|{X} özetle|Kısaca: {X}, {d}.
+{X} ayrıntılı anlat|{X} detaylı açıkla|Ayrıntıya girersek: {X}, {d}. Daha fazlası için araştır komutunu kullan.
+{X} favorin mi|{X} en sevdiğin şey mi|Favorim diyemem ama {X} bana ilginç geliyor. {X}, {d}.
+{X} senin için ne anlama geliyor|{X} senin için ne ifade ediyor|Benim için {X} öğrenilecek bir konu. {X}, {d}.
+{X} hakkında merak ettiğim bir şey var|{X} hakkında soru soracağım|Dinliyorum. Önce temelden başlayayım: {X}, {d}.
+{X} hakkında yorum yap|{X} için bir yorum yap|Yorumum şu: {X}, {d}. Bu bana oldukça değerli geliyor.
+{X} hakkında bir şey öğrenmek istiyorum|{X} öğrenmek istiyorum|Güzel, öğrenmek harika. {X}, {d}.
+{X} bana tavsiye ver|{X} için tavsiye ver|Tavsiyem: önce {X} konusunu merakla incele. {X}, {d}.
+{X} çocuklara uygun mu|{X} çocuklar için uygun mu|Genelde evet, ama yanlarında bir büyük olması iyi olur. {X}, {d}.
+{X} herkes için uygun mu|{X} herkese göre mi|Herkese göre olmayabilir. {X}, {d}.
+{X} tehlikeli mi|{X} zararlı mı|Duruma göre değişir. {X}, {d}. Dikkat etmekte fayda var.
+{X} pahalı mı|{X} ucuz mu|Fiyatı yere ve zamana göre değişir. {X}, {d}.
+{X} kolay mı|{X} basit mi|Bu kişiden kişiye değişir. {X}, {d}.
+{X} zor mu|{X} karmaşık mı|Başta zor görünebilir ama alışınca kolaylaşır. {X}, {d}.
+{X} nereden geliyor|{X} nereden çıkmış|Tam kökenini bilemem ama şunu biliyorum: {X}, {d}.
+{X} hakkında bir soru sor|{X} ile ilgili bana soru sor|Bir soru: sence {X} neden bu kadar ilgi çekici? İpucu: {X}, {d}.
+{X} gelecekte ne olur|{X} geleceği nasıl olur|Geleceği kimse bilmez ama {X}, {d}. Zamanla değişebilir.
+{X} ile ilgili tavsiye ister misin|{X} için öneri ver|Önerim: {X} hakkında küçük notlar tut. {X}, {d}.
+{X} neden bu kadar sevilir|{X} niye bu kadar sevilir|Çünkü {X}, {d}. Bu da insanlara iyi gelir.
+{X} ile ilgili güzel bir söz söyle|{X} için güzel bir söz söyle|Güzel bir söz: her {X} bir dünyadır. Hatırla, {X}, {d}.
+{X} hakkında kısa bilgi|{X} hakkında kısa bilgi ver|Kısa bilgi: {X}, {d}.
+{X} nasıl bir şey|{X} nasıl bir şeydir|{X} şöyle bir şeydir: {d}.
+{X} ne zaman önemli olur|{X} ne zaman gerekir|Duruma göre değişir. Genel olarak {X}, {d}.
+{X} hakkında bir cümle kur|{X} ile bir cümle söyle|İşte bir cümle: {X}, {d}.
+{X} hakkında bir şey sorabilir miyim|{X} soru sorabilir miyim|Elbette sorabilirsin. Başlangıç olarak {X}, {d}.
+{X} sence ilginç mi|{X} merak uyandırıcı mı|Çok ilginç. {X}, {d}.
+{X} hakkında kaç şey biliyorsun|{X} konusunda neler biliyorsun|Birkaç şey biliyorum. {X}, {d}.
+{X} üzerine sohbet edelim mi|{X} hakkında sohbet edelim|Olur, sohbet edelim. {X}, {d}. Sen ne düşünüyorsun?
+{X} için ne dersin|{X} hakkında ne dersin|Ne diyeyim, {X}, {d}. Bence gayet güzel bir konu.
+{X} bilgi ver|{X} bilgi|Bilgi vereyim: {X}, {d}.
+{X} hakkında fikrin ne|{X} hakkında fikrin var mı|Fikrim şu: {X}, {d}. Sen ne düşünüyorsun?`.split('\n').map(l=>l.split('|'));
+
+/* 10.000 cevap + 20.000 giriş: konu x soru tipi, çalışırken üretilir */
+const cap=s=>s.charAt(0).toLocaleUpperCase('tr')+s.slice(1);
+const RESP=[],DR=[],DT=[],POST=new Map(),stem=w=>w.slice(0,4);
+const toks=s=>[...new Set(norm(s).split(' ').filter(Boolean).map(stem))];
+for(const [x,d] of ENT)for(const [q1,q2,a] of INT){
+  const k=RESP.push(a.split('{X}').join(cap(x)).split('{d}').join(d))-1;
+  for(const q of [q1,q2]){const id=DR.length;DR.push(k);const ts=toks(q.split('{X}').join(x));DT.push(ts);for(const t of ts){let p=POST.get(t);if(!p)POST.set(t,p=[]);p.push(id)}}
+}
+const NDOC=DR.length,IDF=new Map();for(const [t,p] of POST)IDF.set(t,Math.log(NDOC/p.length));
+const DN=DT.map(ts=>Math.sqrt(ts.reduce((s,t)=>s+IDF.get(t)**2,0)));DT.length=0;
+const UNK=Math.log(NDOC);
+function lookup(text){
+  const qt=toks(text);if(!qt.length)return null;
+  let qn=0;const acc=new Map();
+  for(const t of qt){const i=IDF.get(t);if(i===undefined){qn+=UNK*UNK;continue}qn+=i*i;for(const id of POST.get(t))acc.set(id,(acc.get(id)||0)+i*i)}
+  qn=Math.sqrt(qn);let best=-1,bs=0;
+  for(const [id,s] of acc){const sc=s/(qn*DN[id]);if(sc>bs){bs=sc;best=id}}
+  return bs>=.5?{r:RESP[DR[best]],s:bs,k:DR[best]}:null;
+}
+/*END*/
+
+const $=s=>document.querySelector(s),sleep=ms=>new Promise(r=>setTimeout(r,ms)),pick=a=>a[Math.random()*a.length|0];
+let micErr='',lastErr='',lvlv=0,warned=false,micAsked=false,thinking=false,uname='',spk=false,micOK=false,allowNet=false,started=false,talking=0,chain=Promise.resolve(),pend=null,lastAct=Date.now(),idleN=0,lastReply='',typed='';
+const hist=[];
+
+/* ====== GÜNLÜK SOHBET: girdi => cevaplar => bana ait sorular ====== */
+const DC=String.raw`\b(merhaba|selam|slm|mrb|hey|alo|gunaydin|iyi aksamlar|iyi gunler|tunaydin)\b => Merhaba{a}! Seni duymak güzel.|Selam{a}! Hoş geldin.|Hey{a}, buradayım! => Bugün nasılsın?|Günün nasıl geçiyor?
+nasilsin|naber|ne haber|nasil gidiyor|keyfin nasil|iyi misin => İyiyim, sorduğun için sağ ol.|Gayet iyiyim, enerjim yerinde.|Çok iyiyim, seninle konuşmak güzel. => Sen nasılsın?|Senin günün nasıl geçiyor?
+^(iyiyim|iyi|cok iyiyim|harika|super|idare eder|fena degil|iyi sayilirim|bende iyiyim|ben de iyiyim)( sen)?$ => Bunu duyduğuma sevindim!|Süper, hep böyle olsun.|Güzel, iyi olman bana da iyi geldi. => Bugün seni en çok ne mutlu etti?|Bugün için planların neler?
+kotuyum|iyi degilim|moralim bozuk|canim sikkin|mutsuzum|uzgunum|yorgunum|bunaldim|stresliyim|keyfim yok => Üzüldüm. İstersen anlat, dinliyorum.|Zor bir gün gibi duruyor, buradayım. Çok ağır geliyorsa güvendiğin biriyle de konuş. => Seni en çok ne yoruyor?|Ne oldu, anlatmak ister misin?
+adin ne|ismin ne|sen kimsin|kimsin|adin nedir => Benim adım {b}.|Adım {b}, memnun oldum.|Bana {b} diyebilirsin. => Senin adın ne?|Bana başka bir isim vermek ister misin?
+kac yasindasin|yasin kac => Yaşım yok, açıldığım an doğuyorum. => Sen kaç yaşındasın?
+nerelisin|nerede yasiyorsun|nerede oturuyorsun => Ben bir ekranın içinde yaşıyorum, evim burası. => Sen nerede yaşıyorsun?|Sen nerelisin?
+ne yapiyorsun|napiyorsun|napiyosun|ne yapiyosun => Seninle sohbet ediyorum, daha güzel ne olabilir?|Seni dinliyorum ve göz kırpıyorum. => Sen ne yapıyorsun?|Bugün ne yaptın?
+bugun ne yaptin|gunun nasil gecti|gunun nasildi => Bugün seninl
